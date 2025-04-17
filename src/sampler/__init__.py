@@ -7,19 +7,21 @@ from .sampler import Sampler
 from .fixed_sampler import FixedSampler, FixedSamplerCfg
 from .manual_sampler import ManualSampler, ManualSamplerCfg
 from .sequential_adaptive_sampler import SequentialAdaptiveSampler, SequentialAdaptiveSamplerCfg
-
+from .simultaneous_adaptive_sampler import SimultaneousAdaptiveSampler, SimultaneousAdaptiveSamplerCfg
 
 SAMPLER = {
     "fixed": FixedSampler,
     "manual": ManualSampler,
-    "sequential_adaptive": SequentialAdaptiveSampler
+    "sequential_adaptive": SequentialAdaptiveSampler,
+    "simultaneous_adaptive": SimultaneousAdaptiveSampler
 }
 
 
 SamplerCfg = Union[
     FixedSamplerCfg,
     ManualSamplerCfg,
-    SequentialAdaptiveSamplerCfg
+    SequentialAdaptiveSamplerCfg,
+    SimultaneousAdaptiveSamplerCfg
 ]
 
 
