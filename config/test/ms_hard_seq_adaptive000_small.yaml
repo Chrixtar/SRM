@@ -1,0 +1,12 @@
+defaults:
+  - ms_hard
+  - /sampler@hard.samplers.seq_adaptive000: seq_adaptive
+
+hard:
+  # Override batch size to be smaller
+  num_samples: 2  # Original was 500
+  save_samples: true
+  sampling_video: true
+  samplers:
+    seq_adaptive000:
+      max_steps: 100
