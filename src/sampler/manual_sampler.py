@@ -56,13 +56,11 @@ class ManualSampler(Sampler[ManualSamplerCfg]):
         z_t, _, label, c_cat, eps = self.get_defaults(
             model, batch_size, image_shape, z_t, t, label, mask, masked
         )
-        all_z_t = []
+        all_z_t, all_t, all_sigma, all_pixel_sigma, all_x = [], [], [], [], []
         if return_intermediate:
-            all_z_t.append(z_t)
-            
-        all_t, all_sigma, all_x = [], [], []
+            all_z_t.append(z_t)        
         for t, t_next in self.time_scheduler(z_t.shape[0], z_t.device, mask):
-            z_t, _, sigma_theta, x = self.sampling_step(
+            z_t, _, sigma_theta, x, pixel_sigma_theta = self.sampling_step(
                 model,
                 z_t=z_t, 
                 t=t,
@@ -84,6 +82,7 @@ class ManualSampler(Sampler[ManualSamplerCfg]):
                     all_t.append(t)
                 if return_sigma:
                     all_sigma.append(sigma_theta)
+                    all_pixel_sigma.append(pixel_sigma_theta)
                 if return_x:
                     all_x.append(x)
         
@@ -103,6 +102,10 @@ class ManualSampler(Sampler[ManualSamplerCfg]):
             if return_sigma:
                 all_sigma = torch.stack((*all_sigma, all_sigma[-1]), dim=0)
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
+                
+                # Add per-pixel uncertainty
+                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
             if return_x:
                 all_x = torch.stack((*all_x, all_x[-1]), dim=0)

@@ -196,6 +196,7 @@ class Wrapper(LightningModule):
     ) -> tuple[
         Float[Tensor, "batch time d_data height width"],
         Float[Tensor, "batch time d_data height width"] | None,
+        Float[Tensor, "batch time #d_data #height #width"] | None,
         Float[Tensor, "batch time #d_data #height #width"] | None
     ]:
         in_t = z_t if c_cat is None else torch.cat((z_t, c_cat), dim=-3)
@@ -220,8 +221,23 @@ class Wrapper(LightningModule):
             v_theta = None
 
         # NOTE sigma parameterization is always the same as the model parameterization!
+        pixel_sigma_theta = None
         if self.cfg.model.learn_sigma:
             logvar_theta = pred[..., -1:, :, :]
+            # Create per-pixel uncertainty before any pooling
+            # Clip logvar to prevent extreme values when exp is applied
+            # clipped_logvar = torch.clamp(logvar_theta, -20, 10)  # Reasonable range for log variance
+            pixel_sigma_theta = torch.exp(0.5 * logvar_theta)
+            
+            # Debug print for pixel sigma
+            if sample:  # Only print during sampling, not training
+                with torch.no_grad():
+                    print(f"Raw pixel sigma stats in model.forward: "
+                          f"min={pixel_sigma_theta.min().item()}, "
+                          f"max={pixel_sigma_theta.max().item()}, "
+                          f"mean={pixel_sigma_theta.mean().item()}, "
+                          f"shape={pixel_sigma_theta.shape}")
+            
             if self.cfg.patch_size is None:
                 logvar_theta = logvar_theta.mean(dim=(-2, -1), keepdim=True)
             else:
@@ -239,10 +255,19 @@ class Wrapper(LightningModule):
                     )
                     logvar_theta = logvar_theta.reshape(shape)
             sigma_theta = torch.exp(0.5 * logvar_theta)
+            
+            # Debug print for patch sigma
+            if sample:  # Only print during sampling, not training
+                with torch.no_grad():
+                    print(f"Processed patch sigma stats in model.forward: "
+                          f"min={sigma_theta.min().item()}, "
+                          f"max={sigma_theta.max().item()}, "
+                          f"mean={sigma_theta.mean().item()}, "
+                          f"shape={sigma_theta.shape}")
         else:
             sigma_theta = None
 
-        return mean_theta, v_theta, sigma_theta
+        return mean_theta, v_theta, sigma_theta, pixel_sigma_theta
     
     def training_step(self, batch: BatchedExample, batch_idx) -> Float[Tensor, ""]:
         if self.cfg.conditioning.mask:
@@ -283,7 +308,7 @@ class Wrapper(LightningModule):
         eps = self.flow.sample_eps(x)
         z_t = self.flow.get_zt(t, eps=eps, x=x)
 
-        mean_theta, v_theta, sigma_theta = self.forward(z_t, t, label, c_cat=c_cat)
+        mean_theta, v_theta, sigma_theta, pixel_sigma_theta = self.forward(z_t, t, label, c_cat=c_cat)
 
         if self.cfg.model.parameterization == "eps":
             target = eps

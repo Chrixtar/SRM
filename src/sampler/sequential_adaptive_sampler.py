@@ -171,6 +171,7 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
 
         all_t = []
         all_sigma = []
+        all_pixel_sigma = []  # Track per-pixel sigma values
         all_x = []
         last_next_t = None
 
@@ -183,7 +184,7 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
             z_t = z_t.unsqueeze(1)
             t = t.unsqueeze(1)
             
-            mean_theta, v_theta, sigma_theta = model.forward(
+            mean_theta, v_theta, sigma_theta, pixel_sigma_theta = model.forward(
                 z_t=z_t,
                 t=t,
                 label=label,
@@ -193,6 +194,7 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
             )
             
             sigma_theta.squeeze_(1)
+            pixel_sigma_theta.squeeze_(1)
             should_predict = step_targets == step_id
 
             if is_unknown_map.sum() > self.cfg.epsilon and should_predict.any():
@@ -271,6 +273,17 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                 last_next_t = t_next
             if return_sigma:
                 all_sigma.append(sigma_theta.masked_fill_(t == 0, 0))
+                all_pixel_sigma.append(pixel_sigma_theta.masked_fill_(t == 0, 0))
+                
+                # Debug for pixel sigma collection
+                with torch.no_grad():
+                    last_pixel_sigma = all_pixel_sigma[-1]
+                    print(f"Collecting pixel sigma (step {step_id}): "
+                          f"min={last_pixel_sigma.min().item()}, "
+                          f"max={last_pixel_sigma.max().item()}, "
+                          f"mean={last_pixel_sigma.mean().item()}, "
+                          f"zeros={torch.sum(last_pixel_sigma == 0).item() / last_pixel_sigma.numel():.2f}")
+                          
             if return_x:
                 all_x.append(model.flow.get_x(t, zt=z_t, **{model.cfg.model.parameterization: mean_theta.squeeze(1)}))
 
@@ -292,6 +305,22 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
             if return_sigma:
                 all_sigma = torch.stack((*all_sigma, all_sigma[-1]), dim=0)
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
+                
+                # Process per-pixel sigmas the same way as patch-level sigmas
+                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                
+                # Debug final pixel sigma stack
+                with torch.no_grad():
+                    print(f"Final pixel sigma stack: shape={all_pixel_sigma.shape}")
+                    non_zero_mask = all_pixel_sigma > 0
+                    if torch.any(non_zero_mask):
+                        print(f"Non-zero pixel sigma values: "
+                              f"min={all_pixel_sigma[non_zero_mask].min().item()}, "
+                              f"max={all_pixel_sigma[non_zero_mask].max().item()}")
+                    else:
+                        print("WARNING: No non-zero pixel sigma values found in final stack!")
+                
+                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
             if return_x:
                 all_x = torch.stack((*all_x, all_x[-1]), dim=0)

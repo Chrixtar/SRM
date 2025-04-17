@@ -92,21 +92,111 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
             vis["videos"] = []
             for i, video in enumerate(sample["all_z_t"][s]):
                 video = (video + 1) / 2
-                if "all_t" in sample:
+                has_t = "all_t" in sample
+                has_patch_sigma = "all_sigma" in sample
+                has_pixel_sigma = "all_pixel_sigma" in sample
+                has_x = "all_x" in sample
+                
+                # Add timestep visualization if available
+                if has_t:
                     video = hcat(video, (1-sample["all_t"][i]).expand_as(video))
-                if "all_sigma" in sample:
-                    frame_sigma = sample["all_sigma"][i].squeeze(1)
-                    mask = frame_sigma == 0
-                    sigma_min = torch.where(mask, torch.inf, frame_sigma).min()
-                    sigma_max = torch.where(mask, -torch.inf, frame_sigma).max()
-                    frame_sigma = (frame_sigma - sigma_min) / (sigma_max - sigma_min)
-                    frame_sigma_color = apply_color_map_to_image(frame_sigma)
-                    frame_sigma_color.masked_fill_(mask.unsqueeze(1), 1)
-                    video = hcat(video.expand(-1, 3, -1, -1), frame_sigma_color)
-                if "all_x" in sample:
-                    video = hcat(video, ((sample["all_x"][i] + 1) / 2).expand(-1, video.shape[1], -1, -1))
-                if any(k in sample for k in ("all_t", "all_sigma", "all_x")):
+                
+                # Add patch-level uncertainty
+                if has_patch_sigma:
+                    patch_sigma = sample["all_sigma"][i].squeeze(1)
+                    
+                    # Debug print for patch sigma
+                    with torch.no_grad():
+                        print(f"\n--- PATCH SIGMA DEBUG ---")
+                        print(f"Patch sigma shape: {patch_sigma.shape}")
+                        print(f"Patch sigma stats: min={patch_sigma.min().item()}, max={patch_sigma.max().item()}, mean={patch_sigma.mean().item()}")
+                        # Print non-zero values
+                        non_zero_patch = patch_sigma[patch_sigma > 0]
+                        if len(non_zero_patch) > 0:
+                            print(f"Non-zero patch sigma stats: min={non_zero_patch.min().item()}, max={non_zero_patch.max().item()}")
+                        else:
+                            print("No non-zero patch sigma values found!")
+                    
+                    patch_mask = patch_sigma == 0
+                    
+                    # Debug mask info
+                    with torch.no_grad():
+                        print(f"Patch mask ratio: {patch_mask.float().mean().item()}")
+                    
+                    patch_min = torch.where(patch_mask, torch.inf, patch_sigma).min()
+                    patch_max = torch.where(patch_mask, -torch.inf, patch_sigma).max()
+                    
+                    # Debug normalization
+                    with torch.no_grad():
+                        print(f"Patch sigma range: min={patch_min.item()}, max={patch_max.item()}")
+                    
+                    patch_norm = (patch_sigma - patch_min) / (patch_max - patch_min)
+                    patch_color = apply_color_map_to_image(patch_norm)
+                    patch_color.masked_fill_(patch_mask.unsqueeze(1), 1)
+                    video = hcat(video.expand(-1, 3, -1, -1), patch_color)
+
+                # Add Pixel-level uncertainty
+                if has_pixel_sigma:            
+                    pixel_sigma = sample["all_pixel_sigma"][i].squeeze(1)
+                    
+                    # Debug print
+                    with torch.no_grad():
+                        print(f"\n--- PIXEL SIGMA DEBUG ---")
+                        print(f"Pixel sigma shape: {pixel_sigma.shape}")
+                        print(f"Pixel sigma stats: min={pixel_sigma.min().item()}, max={pixel_sigma.max().item()}, mean={pixel_sigma.mean().item()}")
+                        # Print non-zero values
+                        non_zero_pixel = pixel_sigma[pixel_sigma > 0]
+                        if len(non_zero_pixel) > 0:
+                            print(f"Non-zero pixel sigma stats: min={non_zero_pixel.min().item()}, max={non_zero_pixel.max().item()}")
+                        else:
+                            print("No non-zero pixel sigma values found!")
+                    
+                    # Additional safety: clip extremely high values
+                    # with torch.no_grad():
+                    #     max_sigma = 1.1
+                    #     if pixel_sigma.max() > max_sigma:
+                    #         old_max = pixel_sigma.max().item()
+                    #         pixel_sigma = torch.clamp(pixel_sigma, 0, max_sigma)
+                    #         print(f"Clipped extreme sigma values from {old_max} to {max_sigma}")
+                    
+                    pixel_mask = pixel_sigma == 0
+                    
+                    # Debug print
+                    with torch.no_grad():
+                        print(f"Pixel mask ratio: {pixel_mask.float().mean().item()}")
+                    
+                    # Fix for potential normalization issues
+                    with torch.no_grad():
+                        pixel_min = torch.where(pixel_mask, torch.inf, pixel_sigma).min()
+                        pixel_max = torch.where(pixel_mask, -torch.inf, pixel_sigma).max()
+                        
+                        print(f"Pixel sigma range: min={pixel_min.item()}, max={pixel_max.item()}")
+                        
+                        # If all values are the same, use a default range
+                        if abs(pixel_max - pixel_min) < 1e-6 or not torch.isfinite(pixel_min) or not torch.isfinite(pixel_max):
+                            print("WARNING: Using default range for pixel sigma normalization")
+                            pixel_min = 0.0
+                            pixel_max = 1.0
+                            # Use constant values instead of zero
+                            pixel_norm = torch.ones_like(pixel_sigma) * 0.5
+                        else:
+                            pixel_norm = (pixel_sigma - pixel_min) / (pixel_max - pixel_min)
+                        
+                        print(f"Normalized range: min={pixel_norm.min().item()}, max={pixel_norm.max().item()}")
+                    
+                    pixel_color = apply_color_map_to_image(pixel_norm)
+                    pixel_color.masked_fill_(pixel_mask.unsqueeze(1), 1)                    
+                    video = hcat(video, pixel_color)
+                
+                # Add the ground truth if available
+                if has_x:
+                    gt_viz = ((sample["all_x"][i] + 1) / 2).expand(-1, video.shape[1], -1, -1)
+                    video = hcat(video, gt_viz)
+                    
+                # Add border around the visualization
+                if has_t or has_patch_sigma or has_pixel_sigma or has_x:
                     video = add_border(video)
+                    
                 vis["videos"].append(prep_video(video))
         return vis
 

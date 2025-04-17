@@ -56,21 +56,46 @@ class Sampler(Generic[T], ABC):
         Float[Tensor, "batch dim height width"],
         Float[Tensor, "batch 1 height width"],
         Float[Tensor, "batch 1 height width"] | None,
-        Float[Tensor, "batch dim height width"] | None
+        Float[Tensor, "batch dim height width"] | None,
+        Float[Tensor, "batch 1 height width"] | None
     ]:
         z_t = z_t.unsqueeze(1)
         t = t.unsqueeze(1)
         if c_cat is not None:
             c_cat = c_cat.unsqueeze(1)
 
-        mean_theta, v_theta, sigma_theta = model.forward(
+        mean_theta, v_theta, sigma_theta, pixel_sigma_theta = model.forward(
             z_t, t, label, c_cat, sample=True, use_ema=self.cfg.use_ema
         )
 
         if sigma_theta is not None:
             sigma_theta.squeeze_(1)
         
-        sigma_theta = sigma_theta.masked_fill_(t.squeeze(1) == 0, 0) if return_sigma else None
+        if pixel_sigma_theta is not None:
+            pixel_sigma_theta.squeeze_(1)
+            # Debug pixel sigma
+            with torch.no_grad():
+                print(f"pixel_sigma in sampling_step before masking: "
+                      f"min={pixel_sigma_theta.min().item()}, "
+                      f"max={pixel_sigma_theta.max().item()}, "
+                      f"mean={pixel_sigma_theta.mean().item()}, "
+                      f"shape={pixel_sigma_theta.shape}, "
+                      f"has_zeros={torch.any(pixel_sigma_theta == 0).item()}")
+        
+        # Apply masking to both patch and pixel level uncertainties
+        sigma_theta_masked = sigma_theta.masked_fill_(t.squeeze(1) == 0, 0) if return_sigma else None
+        pixel_sigma_theta_masked = pixel_sigma_theta.masked_fill_(t.squeeze(1) == 0, 0) if return_sigma else None
+        
+        # Debug masked pixel sigma
+        if return_sigma and pixel_sigma_theta_masked is not None:
+            with torch.no_grad():
+                print(f"pixel_sigma in sampling_step after masking: "
+                      f"min={pixel_sigma_theta_masked.min().item()}, "
+                      f"max={pixel_sigma_theta_masked.max().item()}, "
+                      f"mean={pixel_sigma_theta_masked.mean().item()}, "
+                      f"shape={pixel_sigma_theta_masked.shape}, "
+                      f"zeros_ratio={torch.sum(pixel_sigma_theta_masked == 0).item() / pixel_sigma_theta_masked.numel()}")
+        
         conditional_p = model.flow.conditional_p(
             mean_theta, z_t, t, t_next.unsqueeze(1), self.cfg.alpha, self.cfg.temperature, v_theta=v_theta
         )
@@ -78,7 +103,7 @@ class Sampler(Generic[T], ABC):
         # no noise when t_next == 0
         z_t_next = torch.where(t_next.unsqueeze(1) > 0, conditional_p.sample(), conditional_p.mean)
         z_t_next = z_t_next.squeeze(1)
-        return z_t_next, t_next, sigma_theta, x
+        return z_t_next, t_next, sigma_theta_masked, x, pixel_sigma_theta_masked
 
     def get_defaults(
         self,

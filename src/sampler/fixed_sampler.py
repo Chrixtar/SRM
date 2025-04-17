@@ -37,7 +37,7 @@ class FixedSampler(Sampler[FixedSamplerCfg]):
         z_t, t, label, c_cat, eps = self.get_defaults(
             model, batch_size, image_shape, z_t, t, label, mask, masked
         )
-        all_z_t, all_sigma, all_x = [], [], []
+        all_z_t, all_sigma, all_pixel_sigma, all_x = [], [], [], []
         all_t: Tensor = torch.linspace(
             *model.cfg.model.time_interval[::-1], self.cfg.max_steps+1, device=model.device
         )
@@ -48,7 +48,7 @@ class FixedSampler(Sampler[FixedSamplerCfg]):
             all_z_t.append(z_t)
         for i, t in enumerate(all_t[:-1]):
             t_next = all_t[i+1]
-            z_t, _, sigma_theta, x = self.sampling_step(
+            z_t, _, sigma_theta, x, pixel_sigma_theta = self.sampling_step(
                 model,
                 z_t=z_t, 
                 t=t, 
@@ -68,6 +68,7 @@ class FixedSampler(Sampler[FixedSamplerCfg]):
                 all_z_t.append(z_t)
                 if return_sigma:
                     all_sigma.append(sigma_theta)
+                    all_pixel_sigma.append(pixel_sigma_theta)
                 if return_x:
                     all_x.append(x)
         
@@ -85,6 +86,10 @@ class FixedSampler(Sampler[FixedSamplerCfg]):
             if return_sigma:
                 all_sigma = torch.stack((*all_sigma, all_sigma[-1]), dim=0)
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
+                
+                # Add per-pixel uncertainty
+                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
             if return_x:
                 all_x = torch.stack([*all_x, all_x[-1]], dim=0)
