@@ -1,2 +1,3 @@
 name: simultaneous_adaptive
-min_steps_ratio: 0.3
+top_k: 1
+epsilon: 1e-6

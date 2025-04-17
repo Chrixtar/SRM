@@ -230,13 +230,13 @@ class Wrapper(LightningModule):
             pixel_sigma_theta = torch.exp(0.5 * logvar_theta)
             
             # Debug print for pixel sigma
-            if sample:  # Only print during sampling, not training
-                with torch.no_grad():
-                    print(f"Raw pixel sigma stats in model.forward: "
-                          f"min={pixel_sigma_theta.min().item()}, "
-                          f"max={pixel_sigma_theta.max().item()}, "
-                          f"mean={pixel_sigma_theta.mean().item()}, "
-                          f"shape={pixel_sigma_theta.shape}")
+            # if sample:  # Only print during sampling, not training
+            #     with torch.no_grad():
+            #         print(f"Raw pixel sigma stats in model.forward: "
+            #               f"min={pixel_sigma_theta.min().item()}, "
+            #               f"max={pixel_sigma_theta.max().item()}, "
+            #               f"mean={pixel_sigma_theta.mean().item()}, "
+            #               f"shape={pixel_sigma_theta.shape}")
             
             if self.cfg.patch_size is None:
                 logvar_theta = logvar_theta.mean(dim=(-2, -1), keepdim=True)
@@ -257,13 +257,13 @@ class Wrapper(LightningModule):
             sigma_theta = torch.exp(0.5 * logvar_theta)
             
             # Debug print for patch sigma
-            if sample:  # Only print during sampling, not training
-                with torch.no_grad():
-                    print(f"Processed patch sigma stats in model.forward: "
-                          f"min={sigma_theta.min().item()}, "
-                          f"max={sigma_theta.max().item()}, "
-                          f"mean={sigma_theta.mean().item()}, "
-                          f"shape={sigma_theta.shape}")
+            # if sample:  # Only print during sampling, not training
+            #     with torch.no_grad():
+            #         print(f"Processed patch sigma stats in model.forward: "
+            #               f"min={sigma_theta.min().item()}, "
+            #               f"max={sigma_theta.max().item()}, "
+            #               f"mean={sigma_theta.mean().item()}, "
+            #               f"shape={sigma_theta.shape}")
         else:
             sigma_theta = None
 

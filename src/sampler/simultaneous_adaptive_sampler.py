@@ -15,110 +15,78 @@ from .sampler import Sampler, SamplerCfg
 @dataclass
 class SimultaneousAdaptiveSamplerCfg(SamplerCfg):
     name: Literal["simultaneous_adaptive"]
+    top_k: int = 1
     epsilon: float = 1e-6
-    reverse_certainty: bool = False  # If True, patches with higher sigma_theta get longer schedules
-    min_steps_ratio: float = 0.3  # Minimum schedule length as a fraction of max_steps
+    reverse_certainty: bool = False # If True, the top_k patches with the highest sigma_theta are selected
 
 
 class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
 
-    def full_mask_to_sequence_mask(
-        self,
-        full_mask: Float[Tensor, "batch_size channels height width"] | None,
-    ) -> Float[Tensor, "batch_size num_patches"]:
-        batch_size = full_mask.shape[0]
-        sequence_mask = full_mask[:, 0, :: self.patch_size, :: self.patch_size]
-        sequence_mask = sequence_mask.reshape(batch_size, -1)
+    def get_inference_lengths(
+        self, num_inference_blocks: Int32[Tensor, "batch_size"]
+    ) -> Float[Tensor, "batch_size"]:
+        ideal_lengths = self.cfg.max_steps / (
+            (num_inference_blocks - 1) * (1 - self.cfg.overlap) + 1
+        )
 
-        return sequence_mask
-    
-    def get_schedule_from_uncertainty(
+        return ideal_lengths
+
+    def get_schedule_prototypes(
+        self, prototype_lengths: Int32[Tensor, "batch_size"]
+    ) -> Float[Tensor, "max_prototype_length batch_size"]:
+        batch_size = prototype_lengths.size(0)
+        device = prototype_lengths.device
+
+        max_prototype_length = prototype_lengths.max()
+        assert prototype_lengths.min() > 0
+
+        # We add one to the prototype length to include the timestep with just zeros
+        prototype_base = torch.linspace(
+            max_prototype_length, 0, max_prototype_length + 1, device=device
+        )
+
+        prototypes = prototype_base.unsqueeze(0).expand(batch_size, -1)
+
+        # shift down based on the prototype lengths
+        prototypes = prototypes - (max_prototype_length - prototype_lengths).unsqueeze(1)
+        # [batch_size, max_prototype_length + 1]
+
+        # scale to batch_max = 1
+        prototypes = prototypes / prototype_lengths.unsqueeze(1)
+        assert prototypes.max() <= 1 + self.cfg.epsilon
+
+        prototypes.clamp_(0, 1)  # [batch_size, max_prototype_length + 1]
+        prototypes = prototypes.T  # [max_prototype_length + 1, batch_size]
+        return prototypes[:-1]  # [max_prototype_length, batch_size] skip trailing zeros
+
+    def get_next_patch_ids(
         self,
         sigma_theta: Float[Tensor, "batch d_data height width"],
         is_unknown_map: Bool[Tensor, "batch num_patches"],
-    ) -> Float[Tensor, "batch num_patches"]:
-        """
-        Computes schedule lengths for each patch based on uncertainty.
-        Lower uncertainty (sigma_theta) leads to longer schedules.
-        """
+    ) -> Int64[Tensor, "batch top_k"]:
         total_patches = prod(self.patch_grid_shape)
-        batch_size = sigma_theta.shape[0]
-        device = sigma_theta.device
 
-        # Get patch-level sigma_theta by average pooling
         patch_sigma_theta = avg_pool2d(
             sigma_theta, kernel_size=self.patch_size, count_include_pad=False
-        ).reshape(batch_size, total_patches)
-        
-        # Set known patches (from mask) to have 0 steps
-        patch_sigma_theta = patch_sigma_theta * is_unknown_map
-        
-        # Normalize sigma values to [0, 1] within each batch
-        max_sigma, _ = patch_sigma_theta.max(dim=1, keepdim=True)
-        min_sigma, _ = torch.min(
-            patch_sigma_theta + (~is_unknown_map) * max_sigma, 
-            dim=1, 
-            keepdim=True
-        )
-        
-        # Avoid division by zero
-        sigma_range = max_sigma - min_sigma
-        sigma_range = torch.where(sigma_range < self.cfg.epsilon, 
-                                torch.ones_like(sigma_range), 
-                                sigma_range)
-        
-        normalized_sigma = (patch_sigma_theta - min_sigma) / sigma_range
-        
+        ).reshape(-1, total_patches)
+
         if self.cfg.reverse_certainty:
-            # Higher uncertainty -> longer schedule
-            schedule_ratios = normalized_sigma
+            patch_sigma_theta = patch_sigma_theta * is_unknown_map
+
+            smallest_sigma_indices = torch.topk(
+                patch_sigma_theta, self.cfg.top_k, largest=True
+            ).indices 
         else:
-            # Lower uncertainty -> longer schedule
-            schedule_ratios = 1.0 - normalized_sigma
-        
-        # Ensure minimum schedule length for unknown patches
-        min_steps = self.cfg.min_steps_ratio
-        schedule_ratios = schedule_ratios * (1.0 - min_steps) + min_steps
-        
-        # Multiply by max_steps to get actual schedule lengths
-        schedule_lengths = schedule_ratios * self.cfg.max_steps
-        
-        # Ensure known patches have 0 length
-        schedule_lengths = schedule_lengths * is_unknown_map
-        
-        return schedule_lengths
-    
-    def build_scheduling_matrix(
-        self,
-        schedule_lengths: Float[Tensor, "batch num_patches"],
-        is_unknown_map: Bool[Tensor, "batch num_patches"],
-    ) -> Float[Tensor, "max_steps batch_size total_patches"]:
-        """
-        Builds a scheduling matrix where each entry indicates the timestep for each patch at each step.
-        """
-        batch_size, total_patches = schedule_lengths.shape
-        device = schedule_lengths.device
-        
-        # Create step indices for each timestep
-        steps = torch.arange(self.cfg.max_steps + 1, device=device).unsqueeze(-1).unsqueeze(-1)
-        # [max_steps+1, 1, 1]
-        
-        # Expand to match batch and patches
-        steps = steps.expand(-1, batch_size, total_patches)
-        # [max_steps+1, batch_size, total_patches]
-        
-        # For each patch, calculate the timestep at each step
-        # Start from 1.0 (fully noised) and decrease linearly to 0.0 (fully denoised)
-        scheduling_matrix = 1.0 - steps / schedule_lengths.unsqueeze(0).clamp(min=1.0)
-        
-        # Clamp values to [0, 1]
-        scheduling_matrix.clamp_(0.0, 1.0)
-        
-        # Ensure known patches are always 0 in the schedule
-        scheduling_matrix *= is_unknown_map.unsqueeze(0)
-        
-        return scheduling_matrix
-    
+            # Get K non-masked regions with lowest sigma_theta for each batch element
+            known_shift = patch_sigma_theta.max() + 1  # to avoid known regions
+            patch_sigma_theta = patch_sigma_theta + ~is_unknown_map * known_shift
+
+            smallest_sigma_indices = torch.topk(
+                patch_sigma_theta, self.cfg.top_k, largest=False
+            ).indices
+
+        return smallest_sigma_indices
+
     def get_timestep_from_schedule(
         self,
         scheduling_matrix: Float[Tensor, "total_steps batch_size total_patches"],
@@ -130,6 +98,16 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
 
         t_patch = scheduling_matrix[step_id].reshape(batch_size, *self.patch_grid_shape)
         return interpolate(t_patch.unsqueeze(1), size=image_shape, mode="nearest-exact")
+
+    def full_mask_to_sequence_mask(
+        self,
+        full_mask: Float[Tensor, "batch_size channels height width"] | None,
+    ) -> Float[Tensor, "batch_size num_patches"]:
+        batch_size = full_mask.shape[0]
+        sequence_mask = full_mask[:, 0, :: self.patch_size, :: self.patch_size]
+        sequence_mask = sequence_mask.reshape(batch_size, -1)
+
+        return sequence_mask
 
     @torch.no_grad()
     def sample(
@@ -156,38 +134,32 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
             model, batch_size, image_shape, z_t, t, label, mask, masked
         )
 
+        # Create the unknown map to track which patches need denoising
         is_unknown_map = (
             self.full_mask_to_sequence_mask(mask)
             if mask is not None
             else torch.ones(batch_size, total_patches, device=device)
         ) > 0.5  # [batch_size, total_patches]
 
-        # Initial evaluation to get uncertainty
-        with torch.no_grad():
-            z_t_expanded = z_t.unsqueeze(1)
-            t_expanded = t.unsqueeze(1)
-            
-            if c_cat is not None:
-                c_cat = c_cat.unsqueeze(1)
-                
-            _, _, sigma_theta, _ = model.forward(
-                z_t=z_t_expanded,
-                t=t_expanded,
-                label=label,
-                c_cat=c_cat,
-                sample=True,
-                use_ema=self.cfg.use_ema
-            )
-            
-            sigma_theta.squeeze_(1)
-        
-        # Determine schedule lengths based on uncertainty
-        schedule_lengths = self.get_schedule_from_uncertainty(sigma_theta, is_unknown_map)
-        
-        # Build scheduling matrix for the entire sampling process
-        scheduling_matrix = self.build_scheduling_matrix(schedule_lengths, is_unknown_map)
+        # Initialize scheduling matrix with all ones (fully noisy)
+        scheduling_matrix = torch.ones(
+            [self.cfg.max_steps + 1, batch_size, total_patches], device=device
+        )
 
-        breakpoint()
+        # Zero out known regions initially
+        scheduling_matrix *= is_unknown_map.unsqueeze(0)
+        
+        # Calculate the decrement per operation 
+        decrement_per_step = 1.0 / (self.cfg.max_steps * self.cfg.top_k / total_patches)
+        
+        # Debug info
+        print(f"DEBUG: Decrement per operation = {decrement_per_step:.6f}")
+        print(f"DEBUG: Total patches = {total_patches}, Max steps = {self.cfg.max_steps}, Top K = {self.cfg.top_k}")
+        
+        # Track which patches have been selected at each step
+        selected_patches = torch.zeros_like(is_unknown_map, dtype=torch.int)
+        # Track fully denoised patches
+        fully_denoised_patches = torch.zeros_like(is_unknown_map, dtype=torch.bool)
 
         all_z_t = []
         if return_intermediate:
@@ -203,11 +175,13 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
             c_cat = c_cat.unsqueeze(1)
 
         for step_id in range(self.cfg.max_steps):
+            # Get current timestep from scheduling matrix
             t = self.get_timestep_from_schedule(scheduling_matrix, step_id, image_shape)
             
             z_t = z_t.unsqueeze(1)
             t = t.unsqueeze(1)
             
+            # Run model forward pass
             mean_theta, v_theta, sigma_theta, pixel_sigma_theta = model.forward(
                 z_t=z_t,
                 t=t,
@@ -220,18 +194,86 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
             sigma_theta.squeeze_(1)
             pixel_sigma_theta.squeeze_(1)
             
+            # Compute patches to denoise at every step as long as we have unknown patches
+            if is_unknown_map.sum() > self.cfg.epsilon:
+                # Get batch elements that have unknown patches
+                should_predict_batch_ids = is_unknown_map.any(dim=1).nonzero(as_tuple=True)[0]
+                
+                if should_predict_batch_ids.numel() > 0:
+                    # Get uncertainty values for relevant batch elements
+                    sigma_theta_relevant = sigma_theta[should_predict_batch_ids]
+                    is_unknown_map_relevant = is_unknown_map[should_predict_batch_ids]
+                    
+                    # Select patches with lowest uncertainty
+                    next_ids = self.get_next_patch_ids(
+                        sigma_theta_relevant, is_unknown_map_relevant
+                    )
+                    
+                    # Prepare batch and patch indices
+                    repeat_batch_ids = torch.repeat_interleave(
+                        should_predict_batch_ids, repeats=next_ids.shape[1]
+                    )
+                    
+                    flat_next_ids = next_ids.flatten()
+                    
+                    # Track which patches were selected in this step
+                    selected_patches[repeat_batch_ids, flat_next_ids] += 1
+                    
+                    # Update scheduling matrix for next step
+                    if step_id + 1 < self.cfg.max_steps:
+                        # Get current noise values for selected patches
+                        current_values = scheduling_matrix[step_id, repeat_batch_ids, flat_next_ids]
+                        
+                        # Compute new noise values with the fixed decrement
+                        new_values = torch.clamp(current_values - decrement_per_step, min=0.0)
+                        
+                        # Update the scheduling matrix for next step
+                        scheduling_matrix[step_id + 1, repeat_batch_ids, flat_next_ids] = new_values
+                        
+                        # Set all future steps to be at most the new value
+                        # This is the critical fix - ensures denoising is monotonic
+                        if step_id + 2 < self.cfg.max_steps:
+                            for future_step in range(step_id + 2, self.cfg.max_steps + 1):
+                                scheduling_matrix[future_step, repeat_batch_ids, flat_next_ids] = torch.minimum(
+                                    scheduling_matrix[future_step, repeat_batch_ids, flat_next_ids],
+                                    new_values
+                                )
+                        
+                        # Check if any patches are now fully denoised
+                        newly_denoised = new_values <= self.cfg.epsilon
+                        if newly_denoised.any():
+                            # Get indices of newly denoised patches
+                            denoised_batch_ids = repeat_batch_ids[newly_denoised]
+                            denoised_patch_ids = flat_next_ids[newly_denoised]
+                            
+                            # Mark these patches as fully denoised
+                            fully_denoised_patches[denoised_batch_ids, denoised_patch_ids] = True
+                            
+                            # Remove them from the unknown map so they won't be selected again
+                            is_unknown_map[denoised_batch_ids, denoised_patch_ids] = False
+                            
+                            # Set all future steps to 0 for fully denoised patches
+                            if step_id + 2 < self.cfg.max_steps:
+                                scheduling_matrix[step_id + 2:, denoised_batch_ids, denoised_patch_ids] = 0
+            
+            # Ensure the final step has all zeros (fully denoised)
+            scheduling_matrix[-1] = 0
+            
+            # Get next timestep from updated scheduling matrix
             t_next = self.get_timestep_from_schedule(
                 scheduling_matrix, step_id + 1, image_shape
             )
 
+            # Sample from conditional distribution
             conditional_p = model.flow.conditional_p(
                 mean_theta, z_t, t, t_next.unsqueeze(1), self.cfg.alpha, self.cfg.temperature, v_theta=v_theta
             )
-            # no noise when t_next == 0
+            # No noise when t_next == 0
             z_t = torch.where(t_next.unsqueeze(1) > 0, conditional_p.sample(), conditional_p.mean)
             z_t.squeeze_(1)
             t = t.squeeze(1)
 
+            # Handle masking if needed
             if mask is not None:
                 # Repaint
                 if self.patch_size is None:
@@ -241,6 +283,7 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                 else:
                     z_t = masked + mask * z_t
                     
+            # Collect intermediate results if requested
             if return_intermediate:
                 all_z_t.append(z_t)
             if return_time:
@@ -250,21 +293,27 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                 all_sigma.append(sigma_theta.masked_fill_(t == 0, 0))
                 all_pixel_sigma.append(pixel_sigma_theta.masked_fill_(t == 0, 0))
                 
-                # Debug for pixel sigma collection
-                with torch.no_grad():
-                    last_pixel_sigma = all_pixel_sigma[-1]
-                    print(f"Collecting pixel sigma (step {step_id}): "
-                          f"min={last_pixel_sigma.min().item()}, "
-                          f"max={last_pixel_sigma.max().item()}, "
-                          f"mean={last_pixel_sigma.mean().item()}, "
-                          f"zeros={torch.sum(last_pixel_sigma == 0).item() / last_pixel_sigma.numel():.2f}")
-                          
             if return_x:
                 all_x.append(model.flow.get_x(t, zt=z_t, **{model.cfg.model.parameterization: mean_theta.squeeze(1)}))
 
-            if t_next.max() <= self.cfg.epsilon:
-                break  # No more patches to predict
+            # Periodic debug info
+            if step_id % 20 == 0 or step_id == self.cfg.max_steps - 1:
+                avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
+                print(f"DEBUG: Step {step_id+1}/{self.cfg.max_steps}, "
+                      f"Unknown patches: {is_unknown_map.sum().item()}/{total_patches*batch_size}, "
+                      f"Selection count: {selected_patches.sum().item()} (avg: {avg_selections:.1f}/patch), "
+                      f"Fully denoised: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
 
+            # Break early if all patches are fully denoised
+            if t_next.max() <= self.cfg.epsilon:
+                print(f"DEBUG: Early stopping at step {step_id+1}/{self.cfg.max_steps} - all patches denoised")
+                break
+
+        # Final debug info
+        avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
+        print(f"DEBUG: Sampling completed - Selected {selected_patches.sum().item()} patches total (avg: {avg_selections:.1f}/patch)")
+        print(f"DEBUG: Fully denoised patches: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
+        
         res: SamplingOutput = {"sample": z_t}
 
         if return_intermediate:
@@ -283,17 +332,6 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                 
                 # Process per-pixel sigmas the same way as patch-level sigmas
                 all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
-                
-                # Debug final pixel sigma stack
-                with torch.no_grad():
-                    print(f"Final pixel sigma stack: shape={all_pixel_sigma.shape}")
-                    non_zero_mask = all_pixel_sigma > 0
-                    if torch.any(non_zero_mask):
-                        print(f"Non-zero pixel sigma values: "
-                              f"min={all_pixel_sigma[non_zero_mask].min().item()}, "
-                              f"max={all_pixel_sigma[non_zero_mask].max().item()}")
-                    else:
-                        print("WARNING: No non-zero pixel sigma values found in final stack!")
                 
                 res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             

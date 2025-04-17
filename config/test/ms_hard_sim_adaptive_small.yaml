@@ -9,4 +9,4 @@ hard:
   sampling_video: true
   samplers:
     sim_adaptive:
-      max_steps: 100
+      max_steps: 324

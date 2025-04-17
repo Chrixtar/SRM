@@ -276,13 +276,13 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                 all_pixel_sigma.append(pixel_sigma_theta.masked_fill_(t == 0, 0))
                 
                 # Debug for pixel sigma collection
-                with torch.no_grad():
-                    last_pixel_sigma = all_pixel_sigma[-1]
-                    print(f"Collecting pixel sigma (step {step_id}): "
-                          f"min={last_pixel_sigma.min().item()}, "
-                          f"max={last_pixel_sigma.max().item()}, "
-                          f"mean={last_pixel_sigma.mean().item()}, "
-                          f"zeros={torch.sum(last_pixel_sigma == 0).item() / last_pixel_sigma.numel():.2f}")
+                # with torch.no_grad():
+                #     last_pixel_sigma = all_pixel_sigma[-1]
+                #     print(f"Collecting pixel sigma (step {step_id}): "
+                #           f"min={last_pixel_sigma.min().item()}, "
+                #           f"max={last_pixel_sigma.max().item()}, "
+                #           f"mean={last_pixel_sigma.mean().item()}, "
+                #           f"zeros={torch.sum(last_pixel_sigma == 0).item() / last_pixel_sigma.numel():.2f}")
                           
             if return_x:
                 all_x.append(model.flow.get_x(t, zt=z_t, **{model.cfg.model.parameterization: mean_theta.squeeze(1)}))
@@ -310,15 +310,15 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                 all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
                 
                 # Debug final pixel sigma stack
-                with torch.no_grad():
-                    print(f"Final pixel sigma stack: shape={all_pixel_sigma.shape}")
-                    non_zero_mask = all_pixel_sigma > 0
-                    if torch.any(non_zero_mask):
-                        print(f"Non-zero pixel sigma values: "
-                              f"min={all_pixel_sigma[non_zero_mask].min().item()}, "
-                              f"max={all_pixel_sigma[non_zero_mask].max().item()}")
-                    else:
-                        print("WARNING: No non-zero pixel sigma values found in final stack!")
+                # with torch.no_grad():
+                #     print(f"Final pixel sigma stack: shape={all_pixel_sigma.shape}")
+                #     non_zero_mask = all_pixel_sigma > 0
+                #     if torch.any(non_zero_mask):
+                #         print(f"Non-zero pixel sigma values: "
+                #               f"min={all_pixel_sigma[non_zero_mask].min().item()}, "
+                #               f"max={all_pixel_sigma[non_zero_mask].max().item()}")
+                #     else:
+                #         print("WARNING: No non-zero pixel sigma values found in final stack!")
                 
                 res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
