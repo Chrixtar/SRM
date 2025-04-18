@@ -50,32 +50,31 @@ run_experiment() {
     local top_k=$4
     local max_steps=$5
 
-    # Construct Hydra overrides
-    local sampler_override_key="${difficulty}.samplers.${sampler_base}"
+    # Construct Hydra overrides target key based on sampler type and corrected path
+    local sampler_name="${sampler_base}"
     if [ "$sampler_base" == "seq_adaptive" ]; then
-        sampler_override_key="${difficulty}.samplers.seq_adaptive000"
-    elif [ "$sampler_base" == "sim_adaptive" ]; then
-         sampler_override_key="${difficulty}.samplers.sim_adaptive"
+        sampler_name="seq_adaptive000"
     fi
+    local sampler_override_key="test.${difficulty}.samplers.${sampler_name}"
 
-    # Define base overrides (using '+' prefix)
-    local num_samples_override="+${difficulty}.num_samples=$NUM_SAMPLES"
-    local top_k_override="+${sampler_override_key}.top_k=$top_k"
-    local max_steps_override="+${sampler_override_key}.max_steps=$max_steps"
+    # Define base overrides targeting the correct nested structure (e.g., test.hard.num_samples)
+    local num_samples_override="test.${difficulty}.num_samples=$NUM_SAMPLES"
+    local top_k_override="++${sampler_override_key}.top_k=$top_k"
+    local max_steps_override="++${sampler_override_key}.max_steps=$max_steps"
 
     # Construct the full command with individual overrides
-    local filtered_overrides=($num_samples_override $top_k_override $max_steps_override)
-    local cmd_plus="bash test.sh $EXPERIMENT_CONFIG $EXPERIMENT_ID $test_config ${filtered_overrides[@]}"
+    # Ensure overrides are passed as separate arguments without extra quotes
+    local filtered_overrides=("$num_samples_override" "$top_k_override" "$max_steps_override")
+    local cmd="bash test.sh $EXPERIMENT_CONFIG $EXPERIMENT_ID $test_config ${filtered_overrides[@]}"
 
     echo "--------------------------------------------------" | tee -a "$LOG_FILE"
     echo "Running experiment: Difficulty=$difficulty, Sampler=$sampler_base, TestConfig=$test_config, TopK=$top_k, MaxSteps=$max_steps" | tee -a "$LOG_FILE"
-    # Log the command using the '+' prefix which we will execute
-    echo "Command: $cmd_plus" | tee -a "$LOG_FILE"
+    # Log the command
+    echo "Command: $cmd" | tee -a "$LOG_FILE"
     echo "Start time: $(date)" | tee -a "$LOG_FILE"
     local start_time=$(date +%s)
 
     # Execute command and append stdout/stderr to log file
-    # Using the command with '+' prefix based on the error messages.
     # Pass overrides as separate arguments.
     bash test.sh $EXPERIMENT_CONFIG $EXPERIMENT_ID $test_config ${filtered_overrides[@]} >> "$LOG_FILE" 2>&1
     local exit_code=$?
@@ -96,6 +95,11 @@ run_experiment() {
 # --- Experiments --- 
 
 difficulties=("easy" "medium" "hard")
+
+# # TEMPORARY SIMPLE TEST CASE TO CHECK OVERRIDES
+# run_experiment "easy" "sim_adaptive" "ms_easy_sim_adaptive" 1 81
+# # end script
+# exit 0
 
 # Sim Adaptive
 for diff in "${difficulties[@]}"; do

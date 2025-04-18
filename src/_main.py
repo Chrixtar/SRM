@@ -35,6 +35,8 @@ def cyan(text: str) -> str:
 def main(cfg_dict: DictConfig):
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
+    # Print the composed configuration
+    # import pprint; pprint.pprint(OmegaConf.to_container(cfg_dict, resolve=True))
     if cfg.seed is not None:
         seed_everything(cfg.seed, workers=True)
 

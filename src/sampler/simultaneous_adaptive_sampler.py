@@ -297,22 +297,22 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                 all_x.append(model.flow.get_x(t, zt=z_t, **{model.cfg.model.parameterization: mean_theta.squeeze(1)}))
 
             # Periodic debug info
-            if step_id % 20 == 0 or step_id == self.cfg.max_steps - 1:
-                avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
-                print(f"DEBUG: Step {step_id+1}/{self.cfg.max_steps}, "
-                      f"Unknown patches: {is_unknown_map.sum().item()}/{total_patches*batch_size}, "
-                      f"Selection count: {selected_patches.sum().item()} (avg: {avg_selections:.1f}/patch), "
-                      f"Fully denoised: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
+            # if step_id % 20 == 0 or step_id == self.cfg.max_steps - 1:
+            #     avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
+            #     print(f"DEBUG: Step {step_id+1}/{self.cfg.max_steps}, "
+            #           f"Unknown patches: {is_unknown_map.sum().item()}/{total_patches*batch_size}, "
+            #           f"Selection count: {selected_patches.sum().item()} (avg: {avg_selections:.1f}/patch), "
+            #           f"Fully denoised: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
 
             # Break early if all patches are fully denoised
             if t_next.max() <= self.cfg.epsilon:
-                print(f"DEBUG: Early stopping at step {step_id+1}/{self.cfg.max_steps} - all patches denoised")
+                # print(f"DEBUG: Early stopping at step {step_id+1}/{self.cfg.max_steps} - all patches denoised")
                 break
 
         # Final debug info
-        avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
-        print(f"DEBUG: Sampling completed - Selected {selected_patches.sum().item()} patches total (avg: {avg_selections:.1f}/patch)")
-        print(f"DEBUG: Fully denoised patches: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
+        # avg_selections = selected_patches.sum().item() / max(1, is_unknown_map.sum().item() + fully_denoised_patches.sum().item())
+        # print(f"DEBUG: Sampling completed - Selected {selected_patches.sum().item()} patches total (avg: {avg_selections:.1f}/patch)")
+        # print(f"DEBUG: Fully denoised patches: {fully_denoised_patches.sum().item()}/{total_patches*batch_size}")
         
         res: SamplingOutput = {"sample": z_t}
 
