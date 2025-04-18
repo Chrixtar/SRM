@@ -1,0 +1,3 @@
+defaults:
+  - ms_medium
+  - /sampler@medium.samplers.sim_adaptive: sim_adaptive 

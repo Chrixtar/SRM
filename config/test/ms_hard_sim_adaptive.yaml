@@ -1,0 +1,3 @@
+defaults:
+  - ms_hard
+  - /sampler@hard.samplers.sim_adaptive: sim_adaptive

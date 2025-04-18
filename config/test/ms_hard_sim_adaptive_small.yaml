@@ -10,3 +10,4 @@ hard:
   samplers:
     sim_adaptive:
       max_steps: 324
+      top_k: 4
