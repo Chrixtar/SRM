@@ -149,12 +149,30 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
         # Zero out known regions initially
         scheduling_matrix *= is_unknown_map.unsqueeze(0)
         
-        # Calculate the decrement per operation 
-        decrement_per_step = 1.0 / (self.cfg.max_steps * self.cfg.top_k / total_patches)
+        # Calculate the decrement per operation based on initially unknown patches per batch
+        initial_unknown_patches_per_batch = is_unknown_map.sum(dim=1, keepdim=True).float()
+        # Avoid division by zero if a batch item has 0 unknown patches
+        safe_unknown_patches = torch.where(
+            initial_unknown_patches_per_batch > 0, 
+            initial_unknown_patches_per_batch, 
+            torch.ones_like(initial_unknown_patches_per_batch)
+        )
+
+        # Calculate integer denoising steps per patch (R), rounding down
+        R_integer_per_batch = torch.floor(
+            (self.cfg.max_steps * self.cfg.top_k) / safe_unknown_patches
+        )
+        # Ensure R is at least 1 to avoid division by zero for decrement
+        R_integer_per_batch = torch.clamp(R_integer_per_batch, min=1.0)
+        
+        # Calculate decrement based on integer R
+        decrement_per_step_per_batch = 1.0 / R_integer_per_batch # Shape: [batch, 1]
         
         # Debug info
-        print(f"DEBUG: Decrement per operation = {decrement_per_step:.6f}")
-        print(f"DEBUG: Total patches = {total_patches}, Max steps = {self.cfg.max_steps}, Top K = {self.cfg.top_k}")
+        # print(f"DEBUG: Initial unknown patches (sample 0): {initial_unknown_patches_per_batch[0].item():.0f}/{total_patches}")
+        # print(f"DEBUG: Integer R per patch (sample 0): {R_integer_per_batch[0].item():.0f}")
+        # print(f"DEBUG: Decrement per step (sample 0): {decrement_per_step_per_batch[0].item():.6f}")
+        # print(f"DEBUG: Max steps = {self.cfg.max_steps}, Top K = {self.cfg.top_k}")
         
         # Track which patches have been selected at each step
         selected_patches = torch.zeros_like(is_unknown_map, dtype=torch.int)
@@ -224,8 +242,10 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                         # Get current noise values for selected patches
                         current_values = scheduling_matrix[step_id, repeat_batch_ids, flat_next_ids]
                         
-                        # Compute new noise values with the fixed decrement
-                        new_values = torch.clamp(current_values - decrement_per_step, min=0.0)
+                        # Compute new noise values with the per-batch fixed decrement
+                        # Get the decrement corresponding to the batch items being processed
+                        decrements_for_update = decrement_per_step_per_batch[repeat_batch_ids].squeeze(-1)
+                        new_values = torch.clamp(current_values - decrements_for_update, min=0.0)
                         
                         # Update the scheduling matrix for next step
                         scheduling_matrix[step_id + 1, repeat_batch_ids, flat_next_ids] = new_values
