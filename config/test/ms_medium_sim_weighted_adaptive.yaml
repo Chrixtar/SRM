@@ -1,0 +1,3 @@
+defaults:
+  - ms_medium
+  - /sampler@hard.samplers.sim_weighted_adaptive: sim_weighted_adaptive

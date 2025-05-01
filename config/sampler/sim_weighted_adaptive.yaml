@@ -1,0 +1,3 @@
+name: simultaneous_weighted_adaptive
+epsilon: 1e-6
+uncertainty_power: 1.0
