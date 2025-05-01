@@ -140,16 +140,16 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
                     pixel_sigma = sample["all_pixel_sigma"][i].squeeze(1)
                     
                     # Debug print
-                    with torch.no_grad():
-                        print(f"\n--- PIXEL SIGMA DEBUG ---")
-                        print(f"Pixel sigma shape: {pixel_sigma.shape}")
-                        print(f"Pixel sigma stats: min={pixel_sigma.min().item()}, max={pixel_sigma.max().item()}, mean={pixel_sigma.mean().item()}")
-                        # Print non-zero values
-                        non_zero_pixel = pixel_sigma[pixel_sigma > 0]
-                        if len(non_zero_pixel) > 0:
-                            print(f"Non-zero pixel sigma stats: min={non_zero_pixel.min().item()}, max={non_zero_pixel.max().item()}")
-                        else:
-                            print("No non-zero pixel sigma values found!")
+                    # with torch.no_grad():
+                    #     print(f"\n--- PIXEL SIGMA DEBUG ---")
+                    #     print(f"Pixel sigma shape: {pixel_sigma.shape}")
+                    #     print(f"Pixel sigma stats: min={pixel_sigma.min().item()}, max={pixel_sigma.max().item()}, mean={pixel_sigma.mean().item()}")
+                    #     # Print non-zero values
+                    #     non_zero_pixel = pixel_sigma[pixel_sigma > 0]
+                    #     if len(non_zero_pixel) > 0:
+                    #         print(f"Non-zero pixel sigma stats: min={non_zero_pixel.min().item()}, max={non_zero_pixel.max().item()}")
+                    #     else:
+                    #         print("No non-zero pixel sigma values found!")
                     
                     # Additional safety: clip extremely high values
                     # with torch.no_grad():
