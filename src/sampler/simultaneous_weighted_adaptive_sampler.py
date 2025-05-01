@@ -122,7 +122,7 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
         
         # Calculate the total denoising budget per batch item to distribute per step
         initial_unknown_patches_per_batch = is_unknown_map.sum(dim=1, keepdim=True).float()
-        print(f"DEBUG: Initial unknown patches per batch: {initial_unknown_patches_per_batch}")
+        # print(f"DEBUG: Initial unknown patches per batch: {initial_unknown_patches_per_batch}")
         # Budget per step = total initial unknown noise / num steps
         step_denoising_budget_per_batch = initial_unknown_patches_per_batch / self.cfg.max_steps # [batch, 1]
 
@@ -203,27 +203,27 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
             delta_t = torch.where(noisy_mask, allocated_delta, torch.zeros_like(delta_t))
             next_t_candidate = torch.clamp(current_t - delta_t, min=0.0) # [batch, num_patches]
             
-            # -- Debugging Prints --
-            if step_id == 0 or (step_id + 1) % 20 == 0 or step_id == self.cfg.max_steps - 1:
-                num_noisy_patches = noisy_mask.sum(dim=1).float()
-                safe_num_noisy = torch.where(num_noisy_patches > 0, num_noisy_patches, torch.ones_like(num_noisy_patches))
+            # # -- Debugging Prints --
+            # if step_id == 0 or (step_id + 1) % 20 == 0 or step_id == self.cfg.max_steps - 1:
+            #     num_noisy_patches = noisy_mask.sum(dim=1).float()
+            #     safe_num_noisy = torch.where(num_noisy_patches > 0, num_noisy_patches, torch.ones_like(num_noisy_patches))
                 
-                avg_current_t = (current_t * noisy_mask).sum(dim=1) / safe_num_noisy
-                avg_sigma = (patch_sigma_theta * noisy_mask).sum(dim=1) / safe_num_noisy
-                avg_delta_t = (delta_t * noisy_mask).sum(dim=1) / safe_num_noisy
-                avg_next_t = (next_t_candidate * noisy_mask).sum(dim=1) / safe_num_noisy
+            #     avg_current_t = (current_t * noisy_mask).sum(dim=1) / safe_num_noisy
+            #     avg_sigma = (patch_sigma_theta * noisy_mask).sum(dim=1) / safe_num_noisy
+            #     avg_delta_t = (delta_t * noisy_mask).sum(dim=1) / safe_num_noisy
+            #     avg_next_t = (next_t_candidate * noisy_mask).sum(dim=1) / safe_num_noisy
                 
-                print(f"-- Step {step_id+1}/{self.cfg.max_steps} Debug --")
-                print(f"  Shape current_t: {current_t.shape}, patch_sigma_theta: {patch_sigma_theta.shape}, noisy_mask: {noisy_mask.shape}")
-                print(f"  Shape delta_t: {delta_t.shape}, next_t_candidate: {next_t_candidate.shape}, step_budget/batch: {step_denoising_budget_per_batch.shape}")
-                # Print stats for the first batch item for simplicity
-                print(f"  Batch 0: Noisy patches: {num_noisy_patches[0].item():.0f}/{total_patches}")
-                print(f"  Batch 0: Avg Current t (noisy): {avg_current_t[0].item():.4f}")
-                print(f"  Batch 0: Avg Sigma (noisy): {avg_sigma[0].item():.4f}")
-                print(f"  Batch 0: Avg Delta t (noisy): {avg_delta_t[0].item():.4f}")
-                print(f"  Batch 0: Avg Next t (noisy): {avg_next_t[0].item():.4f}")
-                print(f"-------------------------")
-            # -- End Debugging --
+            #     print(f"-- Step {step_id+1}/{self.cfg.max_steps} Debug --")
+            #     print(f"  Shape current_t: {current_t.shape}, patch_sigma_theta: {patch_sigma_theta.shape}, noisy_mask: {noisy_mask.shape}")
+            #     print(f"  Shape delta_t: {delta_t.shape}, next_t_candidate: {next_t_candidate.shape}, step_budget/batch: {step_denoising_budget_per_batch.shape}")
+            #     # Print stats for the first batch item for simplicity
+            #     print(f"  Batch 0: Noisy patches: {num_noisy_patches[0].item():.0f}/{total_patches}")
+            #     print(f"  Batch 0: Avg Current t (noisy): {avg_current_t[0].item():.4f}")
+            #     print(f"  Batch 0: Avg Sigma (noisy): {avg_sigma[0].item():.4f}")
+            #     print(f"  Batch 0: Avg Delta t (noisy): {avg_delta_t[0].item():.4f}")
+            #     print(f"  Batch 0: Avg Next t (noisy): {avg_next_t[0].item():.4f}")
+            #     print(f"-------------------------")
+            # # -- End Debugging --
 
             # Update matrix for the next step
             if step_id + 1 <= self.cfg.max_steps:

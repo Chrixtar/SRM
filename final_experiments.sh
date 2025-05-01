@@ -36,6 +36,12 @@ LOG_FILE="final_experiments_$(date +%Y-%m-%d-%H-%M-%S).log"
 EXPERIMENT_CONFIG="ms1000_28"
 EXPERIMENT_ID="paper"
 
+# --- Parameter Lists ---
+difficulties=("easy" "medium" "hard")
+uncertainty_powers=(1.0 2.0 3.0 4.0 5.0)
+top_ks=(1 2 3 5 9)
+max_steps_list=(100 200 300 400 500)
+
 # Clear log file or create it if it doesn't exist
 > "$LOG_FILE"
 
@@ -112,7 +118,7 @@ run_experiment() {
 
 # --- Experiments --- 
 
-difficulties=("easy" "medium" "hard")
+# difficulties=("easy" "medium" "hard") # Moved to top
 
 # # TEMPORARY SIMPLE TEST CASE TO CHECK OVERRIDES
 # run_experiment "easy" "sim_adaptive" "ms_easy_sim_adaptive" 1 81
@@ -122,33 +128,33 @@ difficulties=("easy" "medium" "hard")
 # Sim Adaptive Weighted
 for diff in "${difficulties[@]}"; do
     test_config_name="ms_${diff}_sim_weighted_adaptive"
-    for uncertainty_power in 1.0 2.0 3.0 4.0 5.0; do
-        for max_steps in 162 324; do
+    for uncertainty_power in "${uncertainty_powers[@]}"; do
+        for max_steps in "${max_steps_list[@]}"; do
             # Pass uncertainty_power as 6th arg, use placeholder '_' for top_k (4th arg)
             run_experiment "$diff" "sim_weighted_adaptive" "$test_config_name" "_" "$max_steps" "$uncertainty_power"
         done
     done
 done 
 
-# # Sim Adaptive
-# for diff in "${difficulties[@]}"; do
-#     test_config_name="ms_${diff}_sim_adaptive"
-#     for top_k in 1 3 9; do
-#         for max_steps in 162 324; do
-#             # Pass top_k as 4th arg, use placeholder '_' for uncertainty_power (6th arg)
-#             run_experiment "$diff" "sim_adaptive" "$test_config_name" "$top_k" "$max_steps" "_"
-#         done
-#     done
-# done
+# Sim Adaptive
+for diff in "${difficulties[@]}"; do
+    test_config_name="ms_${diff}_sim_adaptive"
+    for top_k in "${top_ks[@]}"; do
+        for max_steps in "${max_steps_list[@]}"; do
+            # Pass top_k as 4th arg, use placeholder '_' for uncertainty_power (6th arg)
+            run_experiment "$diff" "sim_adaptive" "$test_config_name" "$top_k" "$max_steps" "_"
+        done
+    done
+done
 
-# # Seq Adaptive
-# for diff in "${difficulties[@]}"; do
-#     test_config_name="ms_${diff}_seq_adaptive000"
-#     for max_steps in 162 324; do
-#         # For seq_adaptive, top_k is always 1
-#         # Pass top_k (1) as 4th arg, use placeholder '_' for uncertainty_power (6th arg)
-#         run_experiment "$diff" "seq_adaptive" "$test_config_name" 1 "$max_steps" "_"
-#     done
-# done
+# Seq Adaptive
+for diff in "${difficulties[@]}"; do
+    test_config_name="ms_${diff}_seq_adaptive000"
+    for max_steps in "${max_steps_list[@]}"; do
+        # For seq_adaptive, top_k is always 1
+        # Pass top_k (1) as 4th arg, use placeholder '_' for uncertainty_power (6th arg)
+        run_experiment "$diff" "seq_adaptive" "$test_config_name" 1 "$max_steps" "_"
+    done
+done
 
 echo "Finished all final experiments at $(date)" | tee -a "$LOG_FILE" 

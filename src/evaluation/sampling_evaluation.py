@@ -62,6 +62,9 @@ class SamplingEvaluation(Evaluation[T, UnbatchedSamplingExample, BatchedSampling
         # only used if there are conditionings from the dataset
         self.chunk_size = ceil(len(dataset) / len(self)) if self.cfg.dataset_indices is None else 1
         dependency_matrix = dataset.get_dependency_matrix(patch_grid_shape) if patch_grid_shape is not None else None
+        # ---- DEBUG PRINT ----
+        print(f"DEBUG [SamplingEvaluation]: Initializing samplers from cfg: {self.cfg.samplers}")
+        # ---- END DEBUG ----
         self.samplers = {
             k: get_sampler(c, patch_size, patch_grid_shape, dependency_matrix) 
             for k, c in self.cfg.samplers.items()
