@@ -124,16 +124,20 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
         initial_unknown_patches_per_batch = is_unknown_map.sum(dim=1, keepdim=True).float()
         # print(f"DEBUG: Initial unknown patches per batch: {initial_unknown_patches_per_batch}")
         # Budget per step = total initial unknown noise / num steps
-        step_denoising_budget_per_batch = initial_unknown_patches_per_batch / self.cfg.max_steps # [batch, 1]
+        base_step_budget_per_batch = initial_unknown_patches_per_batch / self.cfg.max_steps # [batch, 1]
+        cumulative_carried_budget = torch.zeros_like(base_step_budget_per_batch) # Initialize carry-over budget
 
+        # print(f"step_denoising_budget_per_batch {base_step_budget_per_batch}")
+        
         all_z_t = []
         if return_intermediate:
             all_z_t.append(z_t)
 
         all_t = []
         all_sigma = []
-        all_pixel_sigma = []
+        # all_pixel_sigma = []
         all_x = []
+        all_delta_t = [] # Initialize list to store delta_t
         last_next_t = None
 
         if c_cat is not None:
@@ -170,8 +174,8 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
             # Identify patches that still need denoising
             noisy_mask = current_t > self.cfg.epsilon  # [batch, num_patches]
 
-            # Initialize delta_t for this step
-            delta_t = torch.zeros_like(current_t) # [batch, num_patches]
+            # Calculate effective budget for this step by adding carried-over budget
+            current_total_budget_for_step = base_step_budget_per_batch + cumulative_carried_budget
 
             # Calculate weights for noisy patches (inverse uncertainty)
             weights = torch.zeros_like(patch_sigma_theta)
@@ -196,16 +200,39 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
 
             normalized_weights = weights_masked / safe_sum_weights # [batch, num_patches]
             
-            # Calculate the denoising amount for each patch for this step, using per-batch budget
-            allocated_delta = step_denoising_budget_per_batch * normalized_weights # [batch, num_patches]
+            # Calculate the denoising amount for each patch for this step, using per-batch budget.
+            # This is the provisional delta_t based on current total budget for this step.
+            # It's effectively zero for non-noisy patches due to how normalized_weights is constructed from weights_masked.
+            provisional_delta_t = current_total_budget_for_step * normalized_weights # [batch, num_patches]
 
-            # Update schedule: apply the calculated delta only to noisy patches
-            delta_t = torch.where(noisy_mask, allocated_delta, torch.zeros_like(delta_t))
-            next_t_candidate = torch.clamp(current_t - delta_t, min=0.0) # [batch, num_patches]
+            # Determine the actual delta_t that can be applied to each patch this step,
+            # limited by its current_t and ensuring it's for noisy patches only.
+            applied_delta_t_this_step = torch.where(
+                noisy_mask,
+                torch.min(provisional_delta_t, current_t),
+                torch.zeros_like(current_t)
+            )
+
+            # Update schedule: current_t - applied_delta_t_this_step will be >= 0 for noisy patches.
+            # Clamp for absolute safety, though applied_delta_t_this_step <= current_t for noisy ones.
+            next_t_candidate = torch.clamp(current_t - applied_delta_t_this_step, min=0.0) # [batch, num_patches]
             
+            # Calculate the actual change in t for logging (and for budget calculation)
+            actual_delta_t = current_t - next_t_candidate # This is the per-patch actual change
+            
+            # Calculate the total actual denoising sum for this step
+            total_denoising_achieved_this_step = actual_delta_t.sum(dim=1, keepdim=True) # [batch, 1]
+
+            # Update cumulative_carried_budget for the next step:
+            # This is the total budget we had for this step minus what was actually used.
+            # Any amount of current_total_budget_for_step not used (because patches hit current_t limits)
+            # is carried over.
+            cumulative_carried_budget = current_total_budget_for_step - total_denoising_achieved_this_step
+            cumulative_carried_budget = torch.clamp(cumulative_carried_budget, min=0.0) # Ensure non-negative
+
             # # -- Debugging Prints --
             # if step_id == 0 or (step_id + 1) % 20 == 0 or step_id == self.cfg.max_steps - 1:
-            #     num_noisy_patches = noisy_mask.sum(dim=1).float()
+            #     num_noisy_patches = noisy_mask.sum(dim=1).float() 
             #     safe_num_noisy = torch.where(num_noisy_patches > 0, num_noisy_patches, torch.ones_like(num_noisy_patches))
                 
             #     avg_current_t = (current_t * noisy_mask).sum(dim=1) / safe_num_noisy
@@ -267,12 +294,13 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
             # Collect intermediate results if requested
             if return_intermediate:
                 all_z_t.append(z_t)
+                all_delta_t.append(actual_delta_t) # Store delta_t
             if return_time:
                 all_t.append(t)
                 last_next_t = t_next
             if return_sigma:
                 all_sigma.append(sigma_theta.masked_fill_(t == 0, 0))
-                all_pixel_sigma.append(pixel_sigma_theta.masked_fill_(t == 0, 0))
+                # all_pixel_sigma.append(pixel_sigma_theta.masked_fill_(t == 0, 0))
                 
             if return_x:
                 all_x.append(model.flow.get_x(t, zt=z_t, **{model.cfg.model.parameterization: mean_theta.squeeze(1)}))
@@ -282,6 +310,7 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
                 print(f"DEBUG: Early stopping at step {step_id+1}/{self.cfg.max_steps} - all patches denoised")
                 break
         
+        # print(f"Final cumulative_carried_budget at end of sampling: {cumulative_carried_budget}")
         res: SamplingOutput = {"sample": z_t}
 
         if return_intermediate:
@@ -293,18 +322,23 @@ class SimultaneousWeightedAdaptiveSampler(Sampler[SimultaneousWeightedAdaptiveSa
             if return_time:
                 all_t = torch.stack([*all_t, last_next_t], dim=0)
                 res["all_t"] = list(all_t.transpose(0, 1))
-            
+
             if return_sigma:
                 all_sigma = torch.stack((*all_sigma, all_sigma[-1]), dim=0)
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
-                
+
                 # Process per-pixel sigmas the same way as patch-level sigmas
-                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
-                
-                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
-            
+                # all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                # res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
+
             if return_x:
                 all_x = torch.stack((*all_x, all_x[-1]), dim=0)
                 res["all_x"] = list(all_x.transpose(0, 1))
+
+            # Add delta_t if collected
+            if all_delta_t:
+                # Stack delta_t. Note: length might be less than max_steps if early stopping occurred.
+                all_delta_t = torch.stack(all_delta_t, dim=0) # [actual_steps, batch, patches]
+                res["all_delta_t"] = list(all_delta_t.transpose(0, 1)) # list of [actual_steps, patches]
 
         return res

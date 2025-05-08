@@ -9,4 +9,4 @@ hard:
   sampling_video: true
   samplers:
     seq_adaptive000:
-      max_steps: 100
+      max_steps: 300

@@ -9,4 +9,5 @@ hard:
   sampling_video: true
   samplers:
     sim_weighted_adaptive:
-      max_steps: 324
+      max_steps: 300
+      uncertainty_power: 10

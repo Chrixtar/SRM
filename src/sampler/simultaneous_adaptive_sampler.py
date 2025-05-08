@@ -188,6 +188,7 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
         all_pixel_sigma = []
         all_x = []
         last_next_t = None
+        all_delta_t = [] # Initialize list to store delta_t
 
         if c_cat is not None:
             c_cat = c_cat.unsqueeze(1)
@@ -279,6 +280,9 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
             # Ensure the final step has all zeros (fully denoised)
             scheduling_matrix[-1] = 0
             
+            # Calculate actual_delta_t for this step before t_next is derived from the potentially modified schedule
+            actual_delta_t_for_step = scheduling_matrix[step_id] - scheduling_matrix[step_id + 1]
+
             # Get next timestep from updated scheduling matrix
             t_next = self.get_timestep_from_schedule(
                 scheduling_matrix, step_id + 1, image_shape
@@ -306,6 +310,7 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
             # Collect intermediate results if requested
             if return_intermediate:
                 all_z_t.append(z_t)
+                all_delta_t.append(actual_delta_t_for_step)
             if return_time:
                 all_t.append(t)
                 last_next_t = t_next
@@ -351,12 +356,18 @@ class SimultaneousAdaptiveSampler(Sampler[SimultaneousAdaptiveSamplerCfg]):
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
                 
                 # Process per-pixel sigmas the same way as patch-level sigmas
-                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
-                
-                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
+                # all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                # res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
             if return_x:
                 all_x = torch.stack((*all_x, all_x[-1]), dim=0)
                 res["all_x"] = list(all_x.transpose(0, 1))
+
+            # Add delta_t if collected
+            if all_delta_t:
+                # Stack delta_t. Note: length might be less than max_steps if early stopping occurred,
+                # or exactly max_steps if loop completed.
+                stacked_delta_t = torch.stack(all_delta_t, dim=0) # [actual_steps_run, batch, patches]
+                res["all_delta_t"] = list(stacked_delta_t.transpose(0, 1)) # list of [actual_steps_run, patches]
 
         return res

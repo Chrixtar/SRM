@@ -8,6 +8,13 @@ from jaxtyping import Float
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset as TorchDataset
+from torch.nn.functional import interpolate
+
+import matplotlib
+matplotlib.use('Agg') # Use non-interactive backend for matplotlib
+import matplotlib.pyplot as plt
+from PIL import Image
+import io
 
 from src.misc.image_io import prep_image, prep_video, save_image, save_video
 from src.type_extensions import SamplingOutput
@@ -96,6 +103,7 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
                 has_patch_sigma = "all_sigma" in sample
                 has_pixel_sigma = "all_pixel_sigma" in sample
                 has_x = "all_x" in sample
+                has_delta_t = "all_delta_t" in sample
                 
                 # Add timestep visualization if available
                 if has_t:
@@ -106,29 +114,29 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
                     patch_sigma = sample["all_sigma"][i].squeeze(1)
                     
                     # Debug print for patch sigma
-                    with torch.no_grad():
-                        print(f"\n--- PATCH SIGMA DEBUG ---")
-                        print(f"Patch sigma shape: {patch_sigma.shape}")
-                        print(f"Patch sigma stats: min={patch_sigma.min().item()}, max={patch_sigma.max().item()}, mean={patch_sigma.mean().item()}")
-                        # Print non-zero values
-                        non_zero_patch = patch_sigma[patch_sigma > 0]
-                        if len(non_zero_patch) > 0:
-                            print(f"Non-zero patch sigma stats: min={non_zero_patch.min().item()}, max={non_zero_patch.max().item()}")
-                        else:
-                            print("No non-zero patch sigma values found!")
+                    # with torch.no_grad():
+                    #     print(f"\n--- PATCH SIGMA DEBUG ---")
+                    #     print(f"Patch sigma shape: {patch_sigma.shape}")
+                    #     print(f"Patch sigma stats: min={patch_sigma.min().item()}, max={patch_sigma.max().item()}, mean={patch_sigma.mean().item()}")
+                    #     # Print non-zero values
+                    #     non_zero_patch = patch_sigma[patch_sigma > 0]
+                    #     if len(non_zero_patch) > 0:
+                    #         print(f"Non-zero patch sigma stats: min={non_zero_patch.min().item()}, max={non_zero_patch.max().item()}")
+                    #     else:
+                    #         print("No non-zero patch sigma values found!")
                     
                     patch_mask = patch_sigma == 0
                     
                     # Debug mask info
-                    with torch.no_grad():
-                        print(f"Patch mask ratio: {patch_mask.float().mean().item()}")
+                    # with torch.no_grad():
+                    #     print(f"Patch mask ratio: {patch_mask.float().mean().item()}")
                     
                     patch_min = torch.where(patch_mask, torch.inf, patch_sigma).min()
                     patch_max = torch.where(patch_mask, -torch.inf, patch_sigma).max()
                     
                     # Debug normalization
-                    with torch.no_grad():
-                        print(f"Patch sigma range: min={patch_min.item()}, max={patch_max.item()}")
+                    # with torch.no_grad():
+                    #     print(f"Patch sigma range: min={patch_min.item()}, max={patch_max.item()}")
                     
                     patch_norm = (patch_sigma - patch_min) / (patch_max - patch_min)
                     patch_color = apply_color_map_to_image(patch_norm)
@@ -162,15 +170,15 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
                     pixel_mask = pixel_sigma == 0
                     
                     # Debug print
-                    with torch.no_grad():
-                        print(f"Pixel mask ratio: {pixel_mask.float().mean().item()}")
+                    # with torch.no_grad():
+                    #     print(f"Pixel mask ratio: {pixel_mask.float().mean().item()}")
                     
                     # Fix for potential normalization issues
                     with torch.no_grad():
                         pixel_min = torch.where(pixel_mask, torch.inf, pixel_sigma).min()
                         pixel_max = torch.where(pixel_mask, -torch.inf, pixel_sigma).max()
                         
-                        print(f"Pixel sigma range: min={pixel_min.item()}, max={pixel_max.item()}")
+                        # print(f"Pixel sigma range: min={pixel_min.item()}, max={pixel_max.item()}")
                         
                         # If all values are the same, use a default range
                         if abs(pixel_max - pixel_min) < 1e-6 or not torch.isfinite(pixel_min) or not torch.isfinite(pixel_max):
@@ -192,9 +200,92 @@ class Evaluation(TorchDataset, Generic[T, U, B], ABC):
                 if has_x:
                     gt_viz = ((sample["all_x"][i] + 1) / 2).expand(-1, video.shape[1], -1, -1)
                     video = hcat(video, gt_viz)
+                
+                # Add delta_t histogram visualization if available
+                if has_delta_t:
+                    delta_t_for_batch = sample["all_delta_t"][i] # [steps, patches]
+                    num_actual_delta_steps = delta_t_for_batch.shape[0]
+                    hist_imgs = []
+                    hist_bins = 100
+                    target_hist_height = video.shape[2] # Match video frame height
+                    target_hist_width = 300 # Desired width for the histogram plot
+
+                    # Determine the overall max delta_t for consistent x-axis scaling for this sample
+                    overall_max_delta_t = 0.1 # Default max
+                    if has_delta_t:
+                        all_deltas_for_sample = sample["all_delta_t"][i] # Tensor of [steps, patches]
+                        positive_deltas_flat = all_deltas_for_sample[all_deltas_for_sample > 1e-6]
+                        if positive_deltas_flat.numel() > 0:
+                            current_max = positive_deltas_flat.max().item()
+                            # Ensure a minimum sensible range if max is very small, but allow larger values
+                            overall_max_delta_t = max(current_max, 0.01) if current_max > 1e-5 else 0.1
+                        # If max is still too small or negative (edge case), default to 0.1
+                        if overall_max_delta_t <= 1e-5:
+                            overall_max_delta_t = 0.1
+
+                    # Common plot function
+                    def create_hist_tensor(data_tensor, title_suffix, x_axis_max):
+                        fig, ax = plt.subplots(figsize=(target_hist_width/100, target_hist_height/100), dpi=100)
+                        current_title = f"Delta t - {title_suffix}"
+                        hist_plot_range = (0.0, x_axis_max)
+
+                        if data_tensor is not None and data_tensor.numel() > 0:
+                            counts, _ = torch.histogram(data_tensor.cpu(), bins=hist_bins, range=hist_plot_range)
+                            sum_delta_t = data_tensor.sum().item()
+                            current_title += f" (Sum: {sum_delta_t:.5f})"
+                            ax.hist(data_tensor.cpu().numpy(), bins=hist_bins, range=hist_plot_range, color='skyblue', edgecolor='black')
+                            ax.set_xlabel("Delta t Value", fontsize=8)
+                            ax.set_ylabel("Frequency", fontsize=8)
+                            ax.grid(True, linestyle='--', alpha=0.7)
+                            ax.tick_params(axis='both', which='major', labelsize=7)
+                            if counts.numel() > 0:
+                                y_max = counts.max().item()
+                                if y_max > 0 and y_max < 5:
+                                     ax.set_yticks(torch.arange(0, y_max + 1, 1).tolist())
+                                elif y_max == 0:
+                                    ax.set_yticks([0, 0.5, 1])
+                        else:
+                            ax.text(0.5, 0.5, 'No positive delta_t' if data_tensor is not None else title_suffix , horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=9)
+                            ax.set_xlabel("Delta t Value", fontsize=8)
+                            ax.set_ylabel("Frequency", fontsize=8)
+                            ax.set_ylim(0, 1)
+                            ax.grid(True, linestyle='--', alpha=0.7)
+                            ax.tick_params(axis='both', which='major', labelsize=7)
+                        
+                        ax.set_title(current_title, fontsize=10)
+                        ax.set_xlim(hist_plot_range) # Apply dynamic x-limit
+                        fig.tight_layout(pad=0.5)
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format='png', dpi=100)
+                        plt.close(fig)
+                        buf.seek(0)
+                        pil_img = Image.open(buf).convert('RGB')
+                        # Resize PIL image directly
+                        pil_img = pil_img.resize((target_hist_width, target_hist_height), Image.Resampling.LANCZOS)
+                        img_tensor = torch.tensor(list(pil_img.getdata()), dtype=torch.uint8, device=video.device)
+                        img_tensor = img_tensor.reshape(pil_img.height, pil_img.width, 3).permute(2, 0, 1).float() / 255.0
+                        return img_tensor
+
+                    # Add a dummy/initial frame for the histogram plot
+                    hist_imgs.append(create_hist_tensor(None, "Initial Step", overall_max_delta_t))
                     
+                    for step_idx in range(num_actual_delta_steps): # Loop for actual delta_t values
+                        deltas = delta_t_for_batch[step_idx]
+                        positive_deltas = deltas[deltas > 1e-6]
+                        hist_imgs.append(create_hist_tensor(positive_deltas, f"Step {step_idx + 1}", overall_max_delta_t))
+                        
+                    delta_t_video_strip = torch.stack(hist_imgs, dim=0) # [steps, C, H, W]
+                    # Ensure it has 3 channels if video has 3 channels, or 1 if video has 1
+                    if video.shape[1] == 1 and delta_t_video_strip.shape[1] == 3:
+                         # Convert RGB to grayscale if main video is grayscale
+                         delta_t_video_strip = delta_t_video_strip.mean(dim=1, keepdim=True)
+                    elif video.shape[1] == 3 and delta_t_video_strip.shape[1] == 1:
+                         delta_t_video_strip = delta_t_video_strip.expand(-1,3,-1,-1)
+
+                    video = hcat(video, delta_t_video_strip)
+
                 # Add border around the visualization
-                if has_t or has_patch_sigma or has_pixel_sigma or has_x:
+                if has_t or has_patch_sigma or has_pixel_sigma or has_x or has_delta_t:
                     video = add_border(video)
                     
                 vis["videos"].append(prep_video(video))

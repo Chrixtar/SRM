@@ -174,6 +174,7 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
         all_pixel_sigma = []  # Track per-pixel sigma values
         all_x = []
         last_next_t = None
+        all_delta_t = [] # Initialize list to store delta_t
 
         if c_cat is not None:
             c_cat = c_cat.unsqueeze(1)
@@ -246,6 +247,10 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                     
                 scheduling_matrix[-1] = 0
 
+            # Calculate actual_delta_t for this step
+            # scheduling_matrix[step_id + 1] is always valid here due to matrix size and loop range.
+            actual_delta_t_for_step = scheduling_matrix[step_id] - scheduling_matrix[step_id + 1]
+
             t_next = self.get_timestep_from_schedule(
                 scheduling_matrix, step_id + 1, image_shape
             )
@@ -268,6 +273,8 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                     z_t = masked + mask * z_t
             if return_intermediate:
                 all_z_t.append(z_t)
+                # actual_delta_t_for_step is always calculated based on valid indices within the loop.
+                all_delta_t.append(actual_delta_t_for_step)
             if return_time:
                 all_t.append(t)
                 last_next_t = t_next
@@ -307,7 +314,7 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                 res["all_sigma"] = list(all_sigma.transpose(0, 1))
                 
                 # Process per-pixel sigmas the same way as patch-level sigmas
-                all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
+                # all_pixel_sigma = torch.stack((*all_pixel_sigma, all_pixel_sigma[-1]), dim=0)
                 
                 # Debug final pixel sigma stack
                 # with torch.no_grad():
@@ -320,10 +327,15 @@ class SequentialAdaptiveSampler(Sampler[SequentialAdaptiveSamplerCfg]):
                 #     else:
                 #         print("WARNING: No non-zero pixel sigma values found in final stack!")
                 
-                res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
+                # res["all_pixel_sigma"] = list(all_pixel_sigma.transpose(0, 1))
             
             if return_x:
                 all_x = torch.stack((*all_x, all_x[-1]), dim=0)
                 res["all_x"] = list(all_x.transpose(0, 1))
+
+            # Add delta_t if collected
+            if all_delta_t:
+                stacked_delta_t = torch.stack(all_delta_t, dim=0)
+                res["all_delta_t"] = list(stacked_delta_t.transpose(0, 1))
 
         return res
