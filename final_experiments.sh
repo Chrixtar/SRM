@@ -38,9 +38,9 @@ EXPERIMENT_ID="paper"
 
 # --- Parameter Lists ---
 difficulties=("easy" "medium" "hard")
-uncertainty_powers=(1.0 2.0 3.0 4.0 5.0)
-top_ks=(1 2 3 5 9)
-max_steps_list=(100 200 300 400 500)
+uncertainty_powers=(1.0 3.0 9.0)
+top_ks=(1 3 9)
+max_steps_list=(100 300)
 
 # Clear log file or create it if it doesn't exist
 > "$LOG_FILE"
