@@ -40,7 +40,7 @@ EXPERIMENT_ID="paper"
 difficulties=("easy" "medium" "hard")
 uncertainty_powers=(1.0 3.0 9.0)
 top_ks=(1 3 9)
-max_steps_list=(100 300)
+max_steps_list=(162 324)
 
 # Clear log file or create it if it doesn't exist
 > "$LOG_FILE"

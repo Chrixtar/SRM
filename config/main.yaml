@@ -68,7 +68,7 @@ checkpointing:
   save_top_k: null
 
 mnist_classifier: datasets/mnist_sudoku/mnist_classifier.pth
-seed: null
+seed: 42
 
 trainer:
   max_epochs: -1
