@@ -6,14 +6,14 @@
 # project based on the configurations specified below.
 #
 # 1. Make the script executable:
-#    chmod +x midterm_experiments.sh
+#    chmod +x baseline_experiments.sh
 #
 # 2. Run the script:
-#    ./midterm_experiments.sh [num_samples]
+#    ./baseline_experiments.sh [num_samples]
 #
 # Optional Argument:
 #   [num_samples]: Override the default number of samples (500) for each experiment.
-#                  Useful for quick testing (e.g., ./midterm_experiments.sh 10).
+#                  Useful for quick testing (e.g., ./baseline_experiments.sh 10).
 #
 # CUDA Out of Memory Errors:
 #   If you encounter CUDA Out of Memory (OOM) errors, even with low sample counts,
@@ -22,7 +22,7 @@
 #   This can help PyTorch manage GPU memory more efficiently.
 #
 # Output:
-#   - Progress and results are logged to a file named 'midterm_experiments_YYYY-MM-DD-HH-MM-SS.log'
+#   - Progress and results are logged to a file named 'baseline_experiments_YYYY-MM-DD-HH-MM-SS.log'
 #     in the same directory where the script is run.
 #   - The script will execute 'bash test.sh' for each experimental configuration.
 #     Ensure 'test.sh' and the necessary config files/checkpoints are accessible.
@@ -32,7 +32,7 @@
 # Default number of samples (can be overridden by command line argument)
 NUM_SAMPLES=${1:-100}
 # Create a log file with a timestamp
-LOG_FILE="midterm_experiments_$(date +%Y-%m-%d-%H-%M-%S).log"
+LOG_FILE="baseline_experiments_$(date +%Y-%m-%d-%H-%M-%S).log"
 EXPERIMENT_CONFIG="ms1000_28"
 EXPERIMENT_ID="paper"
 
