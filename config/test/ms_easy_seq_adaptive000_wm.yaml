@@ -1,0 +1,3 @@
+defaults:
+  - ms_easy_worldmodel
+  - /sampler@easy.samplers.seq_adaptive000: seq_adaptive

@@ -1,0 +1,9 @@
+easy:
+  name: mnist_sudoku_worldmodel
+  num_fill: [54, 80]
+  num_samples: 10
+  save_samples: false
+  sampling_video: false
+  bp_iterations: 30
+  bp_damping: 0.5
+  num_model_samples: 20

@@ -1,0 +1,3 @@
+defaults:
+  - ms_medium_worldmodel
+  - /sampler@medium.samplers.seq_adaptive000: seq_adaptive

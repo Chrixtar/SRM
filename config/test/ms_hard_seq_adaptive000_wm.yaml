@@ -1,0 +1,3 @@
+defaults:
+  - ms_hard_worldmodel
+  - /sampler@hard.samplers.seq_adaptive000: seq_adaptive
