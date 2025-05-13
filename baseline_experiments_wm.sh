@@ -32,14 +32,14 @@
 # Default number of samples (can be overridden by command line argument)
 NUM_SAMPLES=${1:-100}
 # Create a log file with a timestamp
-LOG_FILE="baseline_experiments_$(date +%Y-%m-%d-%H-%M-%S).log"
+LOG_FILE="baseline_experiments_wm_$(date +%Y-%m-%d-%H-%M-%S).log"
 EXPERIMENT_CONFIG="ms1000_28"
 EXPERIMENT_ID="paper"
 
 # Clear log file or create it if it doesn't exist
 > "$LOG_FILE"
 
-echo "Starting midterm experiments at $(date)" | tee -a "$LOG_FILE"
+echo "Starting world model experiments at $(date)" | tee -a "$LOG_FILE"
 echo "Using NUM_SAMPLES=$NUM_SAMPLES" | tee -a "$LOG_FILE"
 
 # Function to run a single experiment and log details
@@ -95,13 +95,13 @@ run_experiment() {
 
 # --- Experiments --- 
 
-difficulties=("easy" "medium" "hard")
+difficulties=("medium" "hard")
 
 # Seq Adaptive
 for diff in "${difficulties[@]}"; do
-    test_config_name="ms_${diff}_seq_adaptive000"
-    for top_k in 1 3 9 81; do
-        for max_steps in 162 324; do
+    test_config_name="ms_${diff}_seq_adaptive000_wm"
+    for top_k in 1 81; do
+        for max_steps in 162; do
             run_experiment "$diff" "seq_adaptive" "$test_config_name" "$top_k" "$max_steps"
         done
     done
