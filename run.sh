@@ -1,0 +1,4 @@
+bash baseline_experiments.sh
+bash final_experiments.sh
+bash baseline_experiments_wm.sh
+bash wm_experiments.sh
