@@ -4,6 +4,7 @@ from .mnist_sudoku_evaluation import MnistSudokuEvaluation, MnistSudokuEvaluatio
 from .sampling_evaluation import SamplingEvaluation, SamplingEvaluationCfg
 from .counting_objects_evaluation import CountingObjectsEvaluation, CountingObjectsEvaluationCfg
 from .even_pixels_evaluation import EvenPixelsEvaluation, EvenPixelsEvaluationCfg
+from .mnist_sudoku_worldmodel_evaluation import MnistSudokuWorldModelEvaluation, MnistSudokuWorldModelEvaluationCfg
 
 from ..dataset import Dataset
 
@@ -14,10 +15,11 @@ EVALUATION = {
     "sampling": SamplingEvaluation,
     "counting_objects": CountingObjectsEvaluation,
     "even_pixels": EvenPixelsEvaluation,
+    "mnist_sudoku_worldmodel": MnistSudokuWorldModelEvaluation,
 }
 
 
-EvaluationCfg = MnistGridEvaluationCfg | MnistSudokuEvaluationCfg | SamplingEvaluationCfg | CountingObjectsEvaluationCfg | EvenPixelsEvaluationCfg
+EvaluationCfg = MnistGridEvaluationCfg | MnistSudokuEvaluationCfg | SamplingEvaluationCfg | CountingObjectsEvaluationCfg | EvenPixelsEvaluationCfg | MnistSudokuWorldModelEvaluationCfg
 
 
 def get_evaluation(
