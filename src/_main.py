@@ -12,15 +12,18 @@ from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning.profilers import AdvancedProfiler
+import numpy as np
 
 from src.config import load_typed_root_config
 from src.dataset import get_dataset
 from src.dataset.data_module import DataModule
 from src.env import DEBUG
-from src.global_cfg import set_cfg
+from src.global_cfg import set_cfg, get_mnist_classifier_path
 from src.misc.LocalLogger import LocalLogger
 from src.misc.wandb_tools import update_checkpoint_path
 from src.model.wrapper import Wrapper
+from src.sampler import FixedSamplerCfg
+from src.evaluation.mnist_sudoku_worldmodel_evaluation import MnistSudokuWorldModelEvaluation
 
 
 def cyan(text: str) -> str:
@@ -181,7 +184,6 @@ def main(cfg_dict: DictConfig):
         profiler=AdvancedProfiler(dirpath=output_dir, filename="profile") if cfg.trainer.profile else None,
         detect_anomaly=cfg.trainer.detect_anomaly
     )
-
     if cfg.mode == "train":
         trainer.fit(model, datamodule=data_module, ckpt_path=checkpoint_path if resume else None)
     elif cfg.mode == "val":
