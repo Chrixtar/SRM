@@ -5,9 +5,11 @@ Max Planck Institute for Informatics, Saarland Informatics Campus
 
 [![arXiv](https://img.shields.io/badge/arXiv-2403.16292-b31b1b.svg)](https://arxiv.org/abs/2502.21075)
 [![Project Website](https://img.shields.io/badge/Website-Visit%20Here-006c66)](https://geometric-rl.mpi-inf.mpg.de/srm/)
+[![Spatial Reasoners](https://img.shields.io/badge/🌀-spatialreasoners-4051b5)](https://github.com/spatialreasoners/spatialreasoners)
 ![srm_thumbnail](https://github.com/user-attachments/assets/23e0538d-8243-4aad-8041-524ff188a732)
 
 ## 📣 News
+- [25-07-16] 🌀 Release of [**spatialreasoners**](https://github.com/spatialreasoners/spatialreasoners) to train SRMs for your own domain of interest!
 - [25-05-01] 🎉 **Spatial Reasoning with Denoising Models** is accepted at [ICML 2025](https://icml.cc/Conferences/2025)! Meet us at our poster! 😁
 - [25-03-03] 🚀 Code is available on GitHub. Note that this is a minimal code example to reproduce paper results. We plan to release a comprehensive toolbox for our framework soon. Stay tuned!
 - [25-03-03] 👀 Release of [arXiv](https://arxiv.org/abs/2502.21075) paper and [project website](https://geometric-rl.mpi-inf.mpg.de/srm/).
@@ -78,15 +80,23 @@ bash test.sh ms1000_28 paper ms_hard_seq_adaptive000
 ```
 
 ## 📘 Citation
-When using this code in your project, consider citing our work as follows:
-<section class="section" id="BibTeX">
-  <div class="container is-max-desktop content">
-    <pre><code>@inproceedings{wewer25srm,
+When using this code or the spatialreasoners framework in your project, consider citing our works as follows:
+```bibtex
+@inproceedings{wewer25srm,
     title     = {Spatial Reasoning with Denoising Models},
     author    = {Wewer, Christopher and Pogodzinski, Bartlomiej and Schiele, Bernt and Lenssen, Jan Eric},
     booktitle = {International Conference on Machine Learning ({ICML})},
     year      = {2025},
-}</code></pre>
+}
+
+@inproceedings{pogodzinski25spatialreasoners,
+  title={Spatial Reasoners for Continuous Variables in Any Domain},
+  author={Bart Pogodzinski and Christopher Wewer and Bernt Schiele and Jan Eric Lenssen},
+  booktitle={Championing Open-source DEvelopment in ML Workshop @ ICML25},
+  year={2025},
+  url={https://openreview.net/forum?id=89GglVwjuK}
+}
+```
   </div>
 </section>
 
